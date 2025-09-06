@@ -1,0 +1,83 @@
+import os
+import time
+import json
+import sqlite3
+import requests
+from datetime import datetime
+from sync_local import sync_usuarios, sync_menu, sync_registros, sync_pedidos
+
+# Función para verificar la conexión a Internet
+def internet_connected():
+    try:
+        requests.get('https://www.google.com', timeout=5)
+        return True
+    except requests.ConnectionError:
+        return False
+
+# Función para descargar un archivo de Dropbox
+def download_from_dropbox(remote_path, local_path):
+    os.system(f"/home/lm/Dropbox-Uploader/dropbox_uploader.sh download {remote_path} {local_path}")
+
+# Función para subir un archivo a Dropbox
+def upload_to_dropbox(local_path, remote_path):
+    os.system(f"/home/lm/Dropbox-Uploader/dropbox_uploader.sh upload {local_path} {remote_path}")
+
+# Función para sincronizar las bases de datos
+def sync_databases():
+    local_db = '/home/lm/App/Desarrollo/Database/marmato_db.db'
+    secondary_db = 'db_secundaria.db'
+
+    # Aquí se incluye el script de sincronización previamente definido
+    sync_usuarios(local_db, secondary_db)
+    sync_menu(local_db, secondary_db)
+    sync_registros(local_db, secondary_db)
+    sync_pedidos(local_db, secondary_db)
+
+# Ruta del archivo de banderas en Dropbox
+flags_path = '/LM/flags.json'
+local_flags_path = 'flags.json'
+
+while True:
+    if internet_connected():
+        try:
+            # Descargar el archivo de banderas
+            download_from_dropbox(flags_path, local_flags_path)
+
+            # Leer el archivo de banderas
+            with open(local_flags_path, 'r') as f:
+                flags = json.load(f)
+
+            if flags.get('pull_ready'):
+                # Descargar la base de datos secundaria
+                download_from_dropbox('/LM/lm_db.db', 'db_secundaria.db')
+
+                # Ejecutar el script de sincronización
+                sync_databases()
+
+                # Subir la base de datos local actualizada a Dropbox
+                upload_to_dropbox('/home/lm/App/Desarrollo/Database/marmato_db.db', '/LM/lm_db.db')
+
+                # Actualizar las banderas
+                flags['pull_ready'] = False
+                flags['pushed'] = True
+
+                with open(local_flags_path, 'w') as f:
+                    json.dump(flags, f)
+
+                # Subir el archivo de banderas actualizado
+                upload_to_dropbox(local_flags_path, flags_path)
+
+                # Registrar la fecha y hora de la actualización
+                log_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Actualización realizada correctamente desde lm.\n"
+                with open('update_log.txt', 'a') as log_file:
+                    log_file.write(log_entry)
+
+                upload_to_dropbox('update_log.txt', '/logs/update_log.txt')
+                break
+
+        except Exception as e:
+            print(f"Error durante la sincronización: {e}")
+    else:
+        print("No hay conexión a internet. Reintentando en 3 minutos.")
+        # Esperar 3 minutos (180 segundos) antes de volver a intentar
+        time.sleep(180)
