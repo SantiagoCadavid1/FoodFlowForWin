@@ -120,7 +120,7 @@ def sync_pedidos(local_db, secondary_db):
     conn_secondary.close()
 
 """# Rutas de las bases de datos
-local_db = '/home/user/Desktop/Admin/Admin/Desarrollo/Database/marmato_db.db'
+local_db = 'C:/FoodFlow/Desarrollo/Database/marmato_db.db'
 secondary_db = 'db_secundaria.db'
 
 # Sincronización de las tablas

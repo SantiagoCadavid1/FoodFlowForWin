@@ -1,37 +1,42 @@
-import hid
+import pywinusb.hid as hid
+import time
 
 def listar_dispositivos():
-    dispositivos = hid.enumerate()
+    dispositivos = hid.HidDeviceFilter().get_devices()
     if not dispositivos:
         print("No se encontraron dispositivos HID.")
         return []
-
     print("=== Dispositivos HID detectados ===")
     for i, d in enumerate(dispositivos):
-        print(f"[{i}] VID: {d['vendor_id']:04x}, PID: {d['product_id']:04x}, "
-              f"Product: {d.get('product_string', '')}, "
-              f"Manufacturer: {d.get('manufacturer_string', '')}")
+        print(f"[{i}] VID: {hex(d.vendor_id)}, PID: {hex(d.product_id)}, "
+              f"Producto: {d.product_name}")
     return dispositivos
 
-def probar_dispositivo(device_info):
+def raw_handler(data):
+    # data[0] es el report_id, los datos reales empiezan en data[1:]
+    print("Datos crudos:", data)
+
+    # Intentar decodificar como texto legible
+    texto = "".join(chr(b) for b in data[1:] if 32 <= b < 127)
+    if texto:
+        print("Texto decodificado:", texto)
+
+def probar_dispositivo(device):
     try:
-        device = hid.Device(device_info['vendor_id'], device_info['product_id'])
-        print(f"\nConectado a: {device_info.get('product_string', 'Desconocido')}")
+        device.open()
+        device.set_raw_data_handler(raw_handler)
+        print(f"\nConectado a: {device.product_name}")
         print("Leyendo datos... (Ctrl+C para salir)\n")
 
         while True:
-            data = device.read(64)  # Lee hasta 64 bytes
-            if data:
-                print("Datos crudos:", data)
-                try:
-                    texto = "".join(chr(b) for b in data if b > 0x1F and b < 0x7F)
-                    if texto:
-                        print("Texto decodificado:", texto)
-                except:
-                    pass
-
+            time.sleep(0.5)
     except Exception as e:
         print("Error al abrir el dispositivo:", e)
+    finally:
+        try:
+            device.close()
+        except:
+            pass
 
 def main():
     dispositivos = listar_dispositivos()
@@ -48,4 +53,9 @@ def main():
         print("Entrada inválida.")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print("Error inesperado:", e)
+    finally:
+        input("\nPresiona ENTER para salir...")

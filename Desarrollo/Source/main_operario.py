@@ -7,48 +7,91 @@ from PyQt5.QtGui import QPixmap, QIcon, QColor, QFont, QRegExpValidator
 
 # Importar el script del lector RFID
 from PyQt5.QtCore import QThread, pyqtSignal
-from evdev import InputDevice, categorize, ecodes, list_devices
+import pywinusb.hid as hid
+import json
+import os
+
+CONFIG_FILE = "config.json"
 
 class RFIDThread(QThread):
     data_read = pyqtSignal(str)  # Señal para enviar los datos leídos del RFID
 
-    def run(self):
-        # Encuentra el dispositivo de entrada del lector RFID
-        devices = [InputDevice(fn) for fn in list_devices()]
-        rfid_device = None
-        for device in devices:
-            if 'IC Reader' in device.name or "ARM CM0 USB HID Keyboard" in device.name:
-                rfid_device = device
-                break
+    def __init__(self, config_file=CONFIG_FILE):
+        super().__init__()
+        self.config_file = config_file
+        self.device = None
+        self.buffer = ""
 
-        if not rfid_device:
+    def run(self):
+        # Leer configuración
+        if not os.path.exists(self.config_file):
+            print("Archivo de configuración no encontrado.")
+            return
+
+        with open(self.config_file, "r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        lector = config.get("lector_rfid", {})
+        vid = int(lector.get("vid", "0"), 16)
+        pid = int(lector.get("pid", "0"), 16)
+
+        # Buscar dispositivo
+        all_devices = hid.HidDeviceFilter(vendor_id=vid, product_id=pid).get_devices()
+        if not all_devices:
             print("RFID device not found")
             return
 
-        buffer = ""
-
-        # Procesa eventos del dispositivo de entrada
+        self.device = all_devices[0]
         try:
-            for event in rfid_device.read_loop():
-                if event.type == ecodes.EV_KEY:
-                    key_event = categorize(event)
-                    if key_event.keystate == key_event.key_down:
-                        if key_event.keycode == 'KEY_ENTER':
-                            # Emitir señal con los datos leídos
-                            self.data_read.emit(buffer)
-                            buffer = ""
-                        elif key_event.keycode == 'KEY_ESC':
-                            break
-                        else:
-                            buffer += key_event.keycode.lstrip('KEY_').lower()
+            self.device.open()
+            print(f"Conectado a: {self.device.product_name}")
+            self.device.set_raw_data_handler(self.data_handler)
+
+            # Mantener el hilo vivo
+            while self.device.is_opened():
+                self.msleep(100)
+
         except Exception as e:
-            print(f"Error reading from RFID device: {e}")
+            print(f"Error opening RFID device: {e}")
+        finally:
+            if self.device:
+                self.device.close()
+
+    def data_handler(self, data):
+        # data[0] es el Report ID, lo ignoramos
+        for byte in data[1:]:
+            if byte == 0:
+                continue
+            char = chr(byte)
+
+            if char in ["\r", "\n"]:  # Enter
+                if self.buffer:
+                    self.data_read.emit(self.buffer)
+                    self.buffer = ""
+            elif byte == 27:  # ESC
+                self.quit()
+            else:
+                self.buffer += char
+
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         
+        # === Cargar configuración desde JSON ===
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                self.sede = config.get("sede", "Planchado")  # Valor por defecto si no está en el JSON
+            except Exception as e:
+                print(f"⚠️ Error al cargar configuración: {e}")
+                self.sede = "Planchado"
+        else:
+            print("⚠️ No se encontró config.json, usando valores por defecto.")
+            self.sede = "Planchado"
+
         self.tamañoFuenteTitulos = 120
         self.anchoVentana = 1920      # Ancho por defecto de la ventana
         self.altoVentana = 1080
@@ -65,11 +108,10 @@ class MainWindow(QMainWindow):
         self.tamañoFuenteSecundario = 26
         self.tamañoFuenteAvisos = 25
         self.tamañoFuenteTerciario = 55
-        self.sede = "Planchado"
         self.rfid_thread = None  # Inicializar el hilo del lector RFID
         self.db = "Desarrollo/Database/marmato_db.db"
         
-        self.areas=['Seleccionar','Sin asignar','Directo','ADMINISTRACION MINA LA MARUJA','ADMINISTRACION GENERAL','AMBIENTAL','PEQUEÑA MINERIA','ASUNTOS CORPORATIVOS Y SOCIAL','ALMACEN MATERIALES Y SUMINISTROS OPERACION',
+        self.areas=['Seleccionar','Directo','ADMINISTRACION MINA LA MARUJA','ADMINISTRACION GENERAL','AMBIENTAL','PEQUEÑA MINERIA','ASUNTOS CORPORATIVOS Y SOCIAL','ALMACEN MATERIALES Y SUMINISTROS OPERACION',
                     'COO CORP. G&A','EXPLORACION','FINANCIERA CORP. G&A','TECNOLOGIAS DE INFORMACION Y COMUNICACIÓN','ADMINISTRACION LABORATORIO QUIMICO','LM','ADMINISTRACION MANTENIMIENTOS',
                     'ADMINISTRACION PLANTA DE BENEFICIO','PROYECTOS','SALUD OCUPACIONAL Y SEGURIDAD INDUSTRIAL','RECURSOS HUMANOS','RELAVES','ADMINISTRACION SEGURIDAD']
         

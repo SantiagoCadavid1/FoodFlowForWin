@@ -7,6 +7,18 @@ import shutil
 from datetime import datetime
 from sync_local import sync_usuarios, sync_menu, sync_registros, sync_pedidos
 
+CONFIG_FILE = "C:/FoodFlow/config.json"
+
+def cargar_config():
+    if not os.path.exists(CONFIG_FILE):
+        raise FileNotFoundError(f"No se encontró el archivo de configuración: {CONFIG_FILE}")
+
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+config = cargar_config()
+sede = config.get("sede")
+
 # Función para verificar la conexión a Internet
 def internet_connected():
     try:
@@ -17,11 +29,12 @@ def internet_connected():
 
 def download_from_dropbox(remote_path, local_path):
     # Usa rclone para descargar el archivo desde Dropbox
-    os.system(f"rclone copy lmdb:{remote_path} {local_path}")
+    result = os.system(f"rclone copy foodflow:{remote_path} {local_path}")
+    return result == 0  # True si éxito, False si error
 
 def upload_to_dropbox(local_path, remote_path):
     # Usa rclone para subir el archivo a Dropbox
-    os.system(f"rclone copy {local_path} lmdb:{remote_path}")
+    os.system(f"rclone copy {local_path} foodflow:{remote_path}")
     
 def rename_file(file_path, new_name):
     # Obtener el directorio del archivo
@@ -45,7 +58,7 @@ def copy_and_rename_file(source_path, destination_directory, new_name):
 
 # Función para sincronizar las bases de datos
 def sync_databases():
-    local_db = '/home/lm/App/Desarrollo/Database/marmato_db.db'
+    local_db = 'C:/FoodFlow/Desarrollo/Database/marmato_db.db'
     secondary_db = 'db_secundaria.db'
 
     # Aquí se incluye el script de sincronización previamente definido
@@ -55,54 +68,74 @@ def sync_databases():
     sync_pedidos(local_db, secondary_db)
 
 # Ruta del archivo de banderas en Dropbox
-flags_path = 'Aplicaciones/FoodFlow/Planchado/flags.json'
+flags_path = f'Aplicaciones/FoodFlow/Sedes/{sede}/flags.json'
 local_flags_path = 'flags.json'
 
 while True:
     if internet_connected():
         try:
             # Descargar el archivo de banderas
-            download_from_dropbox(flags_path, '.')
+            if download_from_dropbox(flags_path, '.'):
 
-            # Leer el archivo de banderas
-            with open(local_flags_path, 'r') as f:
-                flags = json.load(f)
+                # Leer el archivo de banderas
+                with open(local_flags_path, 'r') as f:
+                    flags = json.load(f)
 
-            if flags.get('pull_ready'):
-                # Descargar la base de datos secundaria
-                download_from_dropbox('Aplicaciones/FoodFlow/Planchado/planchado_db.db', '.')
-                
-                rename_file('/home/lm/App/Sync/planchado_db.db', 'db_secundaria.db')
+                if flags.get('pull_ready'):
+                    # Descargar la base de datos secundaria
+                    download_from_dropbox(f'Aplicaciones/FoodFlow/Sedes/{sede}/{sede}_db.db', '.')
+                    
+                    rename_file(f'C:/FoodFlow/Sync/{sede}_db.db', 'db_secundaria.db')
 
-                # Ejecutar el script de sincronización
-                sync_databases()
-                
-                copy_and_rename_file('/home/lm/App/Desarrollo/Database/marmato_db.db', './', 'planchado_db.db')
+                    # Ejecutar el script de sincronización
+                    sync_databases()
+                    
+                    copy_and_rename_file('C:/FoodFlow/Desarrollo/Database/marmato_db.db', './', f'{sede}_db.db')
 
-                # Subir la base de datos local actualizada a Dropbox
-                upload_to_dropbox('planchado_db.db', 'Aplicaciones/FoodFlow/Planchado/')
+                    # Subir la base de datos local actualizada a Dropbox
+                    upload_to_dropbox(f'{sede}_db.db', f'Aplicaciones/FoodFlow/Sedes/{sede}/')
 
+                    # Actualizar las banderas
+                    flags['pull_ready'] = False
+                    flags['pushed'] = True
+
+                    with open(local_flags_path, 'w') as f:
+                        json.dump(flags, f)
+
+                    # Subir el archivo de banderas actualizado
+                    upload_to_dropbox(local_flags_path, f'Aplicaciones/FoodFlow/Sedes/{sede}/')
+    
+                    # Registrar la fecha y hora de la actualización
+                    log_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Actualización realizada correctamente desde lm.\n"
+                    with open(f'{sede}_update_log.txt', 'a') as log_file:
+                        log_file.write(log_entry)
+
+                    upload_to_dropbox(f'{sede}_update_log.txt', 'Aplicaciones/FoodFlow/logs/')
+                    break
+                else:
+                    print("Descarga no lista")
+                    break
+            else:
+                copy_and_rename_file('C:/FoodFlow/Desarrollo/Database/marmato_db.db', './', f'{sede}_db.db')
+                upload_to_dropbox(f'{sede}_db.db', f'Aplicaciones/FoodFlow/Sedes/{sede}/')
+                # Leer el archivo de banderas
+                with open(local_flags_path, 'r') as f:
+                    flags = json.load(f)
                 # Actualizar las banderas
                 flags['pull_ready'] = False
                 flags['pushed'] = True
-
                 with open(local_flags_path, 'w') as f:
-                    json.dump(flags, f)
-
+                        json.dump(flags, f)
                 # Subir el archivo de banderas actualizado
-                upload_to_dropbox(local_flags_path, 'Aplicaciones/FoodFlow/Planchado/')
-
+                upload_to_dropbox(local_flags_path, f'Aplicaciones/FoodFlow/Sedes/{sede}/')
+    
                 # Registrar la fecha y hora de la actualización
                 log_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Actualización realizada correctamente desde lm.\n"
-                with open('planchado_update_log.txt', 'a') as log_file:
+                with open(f'{sede}_update_log.txt', 'a') as log_file:
                     log_file.write(log_entry)
 
-                upload_to_dropbox('planchado_update_log.txt', 'Aplicaciones/FoodFlow/logs/')
+                upload_to_dropbox(f'{sede}_update_log.txt', 'Aplicaciones/FoodFlow/logs/')
                 break
-            else:
-                print("Descarga no lista")
-                break
-
         except Exception as e:
             print(f"Error durante la sincronización: {e}")
     else:
