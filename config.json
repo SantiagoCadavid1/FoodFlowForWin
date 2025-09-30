@@ -1,0 +1,8 @@
+{
+    "sede": "LM",
+    "lector_rfid": {
+        "vid": "0xffff",
+        "pid": "0x0035",
+        "producto": "USB HID Keyboard"
+    }
+}

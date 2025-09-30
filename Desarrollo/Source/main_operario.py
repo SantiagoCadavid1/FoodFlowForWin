@@ -7,71 +7,35 @@ from PyQt5.QtGui import QPixmap, QIcon, QColor, QFont, QRegExpValidator
 
 # Importar el script del lector RFID
 from PyQt5.QtCore import QThread, pyqtSignal
-import pywinusb.hid as hid
+import keyboard
 import json
 import os
 
 CONFIG_FILE = "config.json"
 
+import re
+
 class RFIDThread(QThread):
     data_read = pyqtSignal(str)  # Señal para enviar los datos leídos del RFID
 
-    def __init__(self, config_file=CONFIG_FILE):
-        super().__init__()
-        self.config_file = config_file
-        self.device = None
-        self.buffer = ""
-
     def run(self):
-        # Leer configuración
-        if not os.path.exists(self.config_file):
-            print("Archivo de configuración no encontrado.")
-            return
-
-        with open(self.config_file, "r", encoding="utf-8") as f:
-            config = json.load(f)
-
-        lector = config.get("lector_rfid", {})
-        vid = int(lector.get("vid", "0"), 16)
-        pid = int(lector.get("pid", "0"), 16)
-
-        # Buscar dispositivo
-        all_devices = hid.HidDeviceFilter(vendor_id=vid, product_id=pid).get_devices()
-        if not all_devices:
-            print("RFID device not found")
-            return
-
-        self.device = all_devices[0]
+        buffer = ""
         try:
-            self.device.open()
-            print(f"Conectado a: {self.device.product_name}")
-            self.device.set_raw_data_handler(self.data_handler)
-
-            # Mantener el hilo vivo
-            while self.device.is_opened():
-                self.msleep(100)
-
+            while True:
+                event = keyboard.read_event(suppress=False)
+                if event.event_type == keyboard.KEY_DOWN:
+                    if event.name == "enter":
+                        # Validar el patrón antes de emitir
+                        if re.fullmatch(r"\d{10}", buffer):
+                            self.data_read.emit(buffer)
+                        buffer = ""  # Reiniciar siempre al presionar enter
+                    elif event.name.isdigit():
+                        buffer += event.name
+                    else:
+                        # Ignorar cualquier tecla que no sea numérica
+                        pass
         except Exception as e:
-            print(f"Error opening RFID device: {e}")
-        finally:
-            if self.device:
-                self.device.close()
-
-    def data_handler(self, data):
-        # data[0] es el Report ID, lo ignoramos
-        for byte in data[1:]:
-            if byte == 0:
-                continue
-            char = chr(byte)
-
-            if char in ["\r", "\n"]:  # Enter
-                if self.buffer:
-                    self.data_read.emit(self.buffer)
-                    self.buffer = ""
-            elif byte == 27:  # ESC
-                self.quit()
-            else:
-                self.buffer += char
+            print(f"Error en RFIDThread: {e}")
 
 
 
