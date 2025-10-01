@@ -1,0 +1,35 @@
+# === Archivos específicos de tu proyecto ===
+Sync/*db.db
+Sync/*update_log.txt
+config.json
+
+# === Python estándar ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.manifest
+*.spec
+
+# === Entornos virtuales ===
+.env
+.venv
+env/
+venv/
+ENV/
+
+# === Archivos de IDEs ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === Archivos de sistema ===
+.DS_Store
+Thumbs.db
