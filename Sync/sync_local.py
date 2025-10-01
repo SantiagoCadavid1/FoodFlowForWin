@@ -27,8 +27,8 @@ def sync_usuarios(local_db, secondary_db):
             fecha_ultima_modificacion_local = datetime.strptime(local_user[5], '%Y-%m-%d %H:%M:%S')
             if fecha_ultima_modificacion_sec > fecha_ultima_modificacion_local:
                 cursor_local.execute("""
-                    UPDATE usuarios SET nombre = ?, id_tarjeta = ?, rol = ?, flag_retirado = ?, fecha_ultima_modificacion = ?
-                    WHERE cedula = ?""", (user[0], user[2], user[3], user[4], user[5], user[1]))
+                    UPDATE usuarios SET nombre = ?, id_tarjeta = ?, rol = ?, flag_retirado = ?, fecha_ultima_modificacion = ?, area = ?
+                    WHERE cedula = ?""", (user[0], user[2], user[3], user[4], user[5], user[6], user[1]))
         else:
             cursor_local.execute("""
                 INSERT INTO usuarios (nombre, cedula, id_tarjeta, rol, flag_retirado, fecha_ultima_modificacion)

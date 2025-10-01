@@ -2,6 +2,7 @@
 Sync/*db.db
 Sync/*update_log.txt
 config.json
+rclone.exe
 
 # === Python estándar ===
 __pycache__/

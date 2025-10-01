@@ -36,20 +36,23 @@ def upload_to_dropbox(local_path, remote_path):
     # Usa rclone para subir el archivo a Dropbox
     os.system(f"rclone copy {local_path} foodflow:{remote_path}")
     
-def rename_file(file_path, new_name):
-    # Obtener el directorio del archivo
-    directory = os.path.dirname(file_path)
+def rename_file(src, dst):
+    # Si el archivo destino ya existe, eliminarlo primero
+    if os.path.exists(dst):
+        os.remove(dst)
+        print(f"Archivo existente eliminado: {dst}")
     
-    # Construir la nueva ruta del archivo con el nuevo nombre
-    new_file_path = os.path.join(directory, new_name)
-    
-    # Renombrar el archivo
-    os.rename(file_path, new_file_path)
-    print(f"Archivo renombrado a {new_file_path}")
+    os.rename(src, dst)
+    print(f"Archivo renombrado de {src} a {dst}")
     
 def copy_and_rename_file(source_path, destination_directory, new_name):
     # Construir la ruta completa del archivo copiado en el destino
     destination_path = os.path.join(destination_directory, new_name)
+    
+    # Si el archivo ya existe en el destino, lo eliminamos
+    if os.path.exists(destination_path):
+        os.remove(destination_path)
+        print(f"Archivo existente eliminado: {destination_path}")
     
     # Copiar el archivo al destino con el nuevo nombre
     shutil.copy2(source_path, destination_path)
@@ -76,21 +79,32 @@ while True:
         try:
             # Descargar el archivo de banderas
             if download_from_dropbox(flags_path, '.'):
-
                 # Leer el archivo de banderas
                 with open(local_flags_path, 'r') as f:
                     flags = json.load(f)
 
                 if flags.get('pull_ready'):
-                    # Descargar la base de datos secundaria
-                    download_from_dropbox(f'Aplicaciones/FoodFlow/Sedes/{sede}/{sede}_db.db', '.')
+                    # Descargar la base de datos secundaria en la carpeta Sync
+                    download_from_dropbox(
+                        f'Aplicaciones/FoodFlow/Sedes/{sede}/{sede}_db.db',
+                        'C:/FoodFlow/Sync'
+                    )
                     
-                    rename_file(f'C:/FoodFlow/Sync/{sede}_db.db', 'db_secundaria.db')
+                    # Renombrar la base de datos descargada a db_secundaria.db
+                    rename_file(
+                        f'C:/FoodFlow/Sync/{sede}_db.db',
+                        f'C:/FoodFlow/Sync/db_secundaria.db'
+                    )
 
                     # Ejecutar el script de sincronización
                     sync_databases()
                     
-                    copy_and_rename_file('C:/FoodFlow/Desarrollo/Database/marmato_db.db', './', f'{sede}_db.db')
+                    # Copiar y renombrar la base de datos local
+                    copy_and_rename_file(
+                        'C:/FoodFlow/Desarrollo/Database/marmato_db.db',
+                        './',
+                        f'{sede}_db.db'
+                    )
 
                     # Subir la base de datos local actualizada a Dropbox
                     upload_to_dropbox(f'{sede}_db.db', f'Aplicaciones/FoodFlow/Sedes/{sede}/')
@@ -106,7 +120,7 @@ while True:
                     upload_to_dropbox(local_flags_path, f'Aplicaciones/FoodFlow/Sedes/{sede}/')
     
                     # Registrar la fecha y hora de la actualización
-                    log_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Actualización realizada correctamente desde lm.\n"
+                    log_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Actualización realizada correctamente desde {sede}.\n"
                     with open(f'{sede}_update_log.txt', 'a') as log_file:
                         log_file.write(log_entry)
 
@@ -130,7 +144,7 @@ while True:
                 upload_to_dropbox(local_flags_path, f'Aplicaciones/FoodFlow/Sedes/{sede}/')
     
                 # Registrar la fecha y hora de la actualización
-                log_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Actualización realizada correctamente desde lm.\n"
+                log_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Actualización realizada correctamente desde {sede}.\n"
                 with open(f'{sede}_update_log.txt', 'a') as log_file:
                     log_file.write(log_entry)
 
