@@ -14,10 +14,11 @@ def connect_db(db_path):
 def generate_report(db_path, output_file):
     # Obtener la fecha actual en formato 'YYYY-MM-DD'
     current_date = datetime.now().strftime('%Y-%m-%d')
+    print(current_date)
 
     # Consulta SQL
     query = f"""
-    SELECT u.nombre, u.cedula, u.rol, r.hora, r.tipo
+    SELECT u.nombre, u.cedula, u.rol, r.sede, r.hora, r.tipo
     FROM registros r
     JOIN usuarios u ON r.cedula = u.cedula
     WHERE r.fecha = ?
@@ -27,6 +28,7 @@ def generate_report(db_path, output_file):
     # Conectar a la base de datos
     conn = connect_db(db_path)
     if conn is None:
+        print("No hubo conexion")
         return
 
     try:
@@ -37,7 +39,7 @@ def generate_report(db_path, output_file):
         # Crear archivo de texto y escribir los resultados
         with open(output_file, 'w') as f:
             for row in records:
-                f.write(f"Nombre: {row[0]}, Cédula: {row[1]}, Rol: {row[2]}, Hora: {row[3]}, Tipo: {row[4]}\n")
+                f.write(f"Nombre: {row[0]}, Cédula: {row[1]}, Rol: {row[2]}, Sede: {row[3]},Hora: {row[3]}, Tipo: {row[4]}\n")
 
         print(f"Reporte generado correctamente: {output_file}")
     except sqlite3.Error as e:
@@ -48,9 +50,9 @@ def generate_report(db_path, output_file):
 # Ejecutar script
 if __name__ == "__main__":
     # Ruta a la base de datos SQLite
-    database_path = '/home/casino/App/Desarrollo/Database/marmato_db.db'
+    database_path = 'Desarrollo/Database/marmato_db.db'
     # Nombre del archivo de salida
-    output_file = '/home/casino/Desktop/registros_diarios.txt'
+    output_file = 'C:/Users/Casino/Desktop/registros_diarios.txt'
 
     generate_report(database_path, output_file)
 

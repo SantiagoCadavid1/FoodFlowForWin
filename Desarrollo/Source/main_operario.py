@@ -30,13 +30,16 @@ class RFIDThread(QThread):
                             self.data_read.emit(buffer)
                         buffer = ""  # Reiniciar siempre al presionar enter
                     elif event.name.isdigit():
+                        # Agregar nuevo dígito al buffer
                         buffer += event.name
+                        # Mantener el buffer con un máximo de 10 caracteres
+                        if len(buffer) > 10:
+                            buffer = buffer[-10:]  # Mantiene solo los últimos 10
                     else:
                         # Ignorar cualquier tecla que no sea numérica
                         pass
         except Exception as e:
             print(f"Error en RFIDThread: {e}")
-
 
 
 class MainWindow(QMainWindow):
@@ -63,17 +66,24 @@ class MainWindow(QMainWindow):
         self.tamañoFuenteReloj = 40
         self.colorFuenteReloj1 = "#0D5690"
         self.colorFuenteReloj2 = "#FFFFFF"
+        self.colorFuenteReloj3 = "#F0920F"
         self.tipografia = "Poppins"
         self.colorFuente = "#727272"
         self.colorFuente2 = "#1D8DD0"
+        self.colorFuente3 = "#F0920F"
         self.colorError = "#E10909"
         self.colorFuenteServicio= "#0D5690"
         self.tamañoFuentePrincipal = 36
         self.tamañoFuenteSecundario = 26
         self.tamañoFuenteAvisos = 25
         self.tamañoFuenteTerciario = 55
-        self.rfid_thread = None  # Inicializar el hilo del lector RFID
         self.db = "Desarrollo/Database/marmato_db.db"
+        self.db_empleados = "Desarrollo/Database/empleados_db.db"
+        self.menu_actual = "menu_principal"
+        # Crear instancia del hilo del lector RFID
+        self.rfid_thread = RFIDThread()
+        self.rfid_thread.data_read.connect(self.rfid_data_received)
+        self.rfid_thread.start()
         
         self.areas=['Seleccionar','Directo','ADMINISTRACION MINA LA MARUJA','ADMINISTRACION GENERAL','AMBIENTAL','PEQUEÑA MINERIA','ASUNTOS CORPORATIVOS Y SOCIAL','ALMACEN MATERIALES Y SUMINISTROS OPERACION',
                     'COO CORP. G&A','EXPLORACION','FINANCIERA CORP. G&A','TECNOLOGIAS DE INFORMACION Y COMUNICACIÓN','ADMINISTRACION LABORATORIO QUIMICO','LM','ADMINISTRACION MANTENIMIENTOS',
@@ -87,6 +97,10 @@ class MainWindow(QMainWindow):
         self.showMaximized()
         
         self.menu_principal=QWidget(self) #check
+        self.menu_empleados=QWidget(self)
+        self.menu_empleados_registro=QWidget(self)
+        self.menu_empleados_registro_exitoso=QWidget(self)
+        self.menu_empleados_registro_fallido=QWidget(self)
         self.menu_usuarios=QWidget(self) #check
         self.menu_formulario_usuarioN=QWidget(self) #check
         self.menu_confirmar_usuarioN=QWidget(self) #check 
@@ -102,6 +116,7 @@ class MainWindow(QMainWindow):
         self.menu_confirmar_registro_manualN=QWidget(self) #check
         self.menu_confirmar_registro_manualE=QWidget(self) #check
         self.menu_aprobar_pedidos=QWidget(self)
+        self.menu_empleados=QWidget(self)
         
         
         self.clock_widget = self.create_clock_widget()
@@ -366,109 +381,168 @@ class MainWindow(QMainWindow):
         else:
             return -1
         
-    def on_menu_formulario_usuarioN_rfid_data_received(self, data):
-        # Escribir los datos leídos en el entry de la tarjeta
-        self.menu_formulario_usuarioN_entry_tarjeta.setText(data)
-        
-    def on_menu_formulario_usuarioE_rfid_data_received(self, data):
-        # Escribir los datos leídos en el entry de la tarjeta
-        self.menu_editar_usuario_entry_tarjeta.setText(data)
-        
-    def on_menu_registros_rfid_data_received(self, data):
-        # Conectar a la base de datos
-        conn = sqlite3.connect(self.db)
-        cursor = conn.cursor()
+    def rfid_data_received(self, data):
+        match self.menu_actual:
+            case "menu_empleados_registro":
+                # Conectar a la base de datos de empleados
+                conn = sqlite3.connect(self.db_empleados)
+                cursor = conn.cursor()
 
-        # Buscar en la tabla usuarios donde id_tarjeta coincida con el valor de data
-        cursor.execute("SELECT nombre, cedula, rol FROM usuarios WHERE id_tarjeta = ?", (data,))
-        result = cursor.fetchone()
+                # Buscar empleado por carnet
+                cursor.execute("SELECT cedula, nombre, cargo FROM empleados WHERE carnet = ?", (data,))
+                empleado = cursor.fetchone()
 
-        if result:
-            nombre, cedula, rol = result
-            servicio = self.valor_servicio_actual
-            now = datetime.now()
-            fecha = now.strftime("%Y-%m-%d")
-            hora = now.strftime("%H:%M")
-            sede = self.sede
-            id_registro = f"{fecha}-{hora}-{servicio}-{sede}-{cedula}"
-            self.join_rfid_thread()
-            self.timer_servicio2.stop()
-            
-            # Verificar que la cédula no exista en la base de datos
-            conn = sqlite3.connect(self.db)
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM registros WHERE cedula = ? AND tipo = ? AND fecha = ?", (cedula, servicio, fecha))
-            result = cursor.fetchone()
-            conn.close()
-            
-            if result[0]>0:
-                self.menu_registro_tarjeta_invalida = QWidget(self)
-                self.init_menu_registro_tarjeta_invalida()
-                self.setCentralWidget(self.menu_registro_tarjeta_invalida)
-            else:
-                self.menu_registro_tarjeta = QWidget(self)
-                self.init_menu_confirmar_registro_tarjeta(cedula, nombre, rol, servicio)
-                self.setCentralWidget(self.menu_registro_tarjeta)
-        else:
-            self.join_rfid_thread()
-            self.timer_servicio2.stop()
-            self.menu_registro_tarjeta_invalida = QWidget(self)
-            self.init_menu_registro_tarjeta_invalida()
-            self.setCentralWidget(self.menu_registro_tarjeta_invalida)
+                if not empleado:
+                # No se encontro el empleado
+                    print(f"[INFO] Carnet {data} no registrado en la base de datos de empleados.")
+                    self.menu_empleados_registro_fallido = QWidget(self)
+                    self.init_menu_empleados_registro_fallido()
+                    self.setCentralWidget(self.menu_empleados_registro_fallido)
+                    conn.close()
+                    return
 
-        # Cerrar la conexión a la base de datos
-        conn.close()
-        
-    def on_menu_aprobar_pedidos_rfid_data_received(self, data):
-        # Conectar a la base de datos
-        conn = sqlite3.connect(self.db)
-        cursor = conn.cursor()
+                # Si el empleado existe
+                cedula, nombre, cargo = empleado
+                tipo = self.menu_empleados_registro_tipo  # Puede ser 'Entrada' o 'Salida'
+                sede = self.sede
 
-        # Recuperar el rol del usuario con el id_tarjeta correspondiente a data
-        cursor.execute('SELECT rol, cedula FROM usuarios WHERE id_tarjeta=?', (data,))
-        resultado = cursor.fetchone()
-        conn.close()
-        
-        if resultado:
-            rol, cedula = resultado
+                now = datetime.now()
+                fecha = now.strftime("%Y-%m-%d")
+                hora = now.strftime("%H:%M")
+                id_registro = f"{fecha}-{hora}-{tipo}-{sede}-{cedula}"
 
-            if rol == "Revisor":
+                # Verificar el ultimo registro del empleado (si existe) para hoy
+                cursor.execute("""
+                    SELECT tipo, hora FROM registros
+                    WHERE cedula = ? AND fecha = ?
+                    ORDER BY hora DESC
+                    LIMIT 1
+                """, (cedula, fecha))
+                ultimo_registro = cursor.fetchone()
+
+                if ultimo_registro:
+                    tipo_ultimo, hora_ultimo = ultimo_registro
+                    # Validar si intenta registrar el mismo tipo consecutivamente
+                    if tipo_ultimo == tipo:
+                        print(f"[ADVERTENCIA] Empleado {nombre} ({cedula}) ya registro una {tipo} a las {hora_ultimo}.")
+                        self.menu_empleados_registro_fallido = QWidget(self)
+                        self.init_menu_empleados_registro_fallido()
+                        self.setCentralWidget(self.menu_empleados_registro_fallido)
+                        conn.close()
+                        return
+
+                cursor.execute("""
+                    INSERT INTO registros (id_registro, cedula, tipo, fecha, hora, sede)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (id_registro, cedula, tipo, fecha, hora, sede))
+                conn.commit()
+
+                print(f"[OK] Registro insertado: {id_registro}")
+
+                # Si pasa las validaciones, mostrar pantalla de confirmacion
+                self.menu_empleados_registro_exitoso = QWidget(self)
+                self.init_menu_empleados_registro_exitoso(cedula, nombre, tipo)
+                self.setCentralWidget(self.menu_empleados_registro_exitoso)
+
+                conn.close()
+            case "menu_formulario_usuarioN":
+                self.menu_formulario_usuarioN_entry_tarjeta.setText(data)
+            case "menu_editar_usuario":
+                self.menu_editar_usuario_entry_tarjeta.setText(data)
+            case "menu_aprobar_pedidos":
                 # Conectar a la base de datos
                 conn = sqlite3.connect(self.db)
                 cursor = conn.cursor()
-                fecha_actual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-                try:
-                    # Crear una consulta SQL para actualizar el campo estado
-                    query = '''UPDATE pedidos SET estado = ?, fecha_ultima_modificacion = ?, cedula_aprobador = ? 
-                    WHERE id_pedido IN ({seq})'''.format(seq=','.join(['?']*len(self.lista_id_pedido)))
+                # Recuperar el rol del usuario con el id_tarjeta correspondiente a data
+                cursor.execute('SELECT rol, cedula FROM usuarios WHERE id_tarjeta=?', (data,))
+                resultado = cursor.fetchone()
+                conn.close()
+                
+                if resultado:
+                    rol, cedula = resultado
 
-                    # Ejecutar la consulta con los parámetros
-                    cursor.execute(query, ["Aprobado", fecha_actual, cedula] + self.lista_id_pedido)
+                    if rol == "Revisor":
+                        # Conectar a la base de datos
+                        conn = sqlite3.connect(self.db)
+                        cursor = conn.cursor()
+                        fecha_actual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-                    # Confirmar los cambios
-                    conn.commit()
+                        try:
+                            # Crear una consulta SQL para actualizar el campo estado
+                            query = '''UPDATE pedidos SET estado = ?, fecha_ultima_modificacion = ?, cedula_aprobador = ? 
+                            WHERE id_pedido IN ({seq})'''.format(seq=','.join(['?']*len(self.lista_id_pedido)))
+
+                            # Ejecutar la consulta con los parámetros
+                            cursor.execute(query, ["Aprobado", fecha_actual, cedula] + self.lista_id_pedido)
+
+                            # Confirmar los cambios
+                            conn.commit()
+                            
+                        except sqlite3.Error as e:
+                            conn.rollback()  # Revertir cambios en caso de error
+                        finally:
+                            # Cerrar la conexión a la base de datos
+                            conn.close()
+                        self.menu_aprobar_pedidos_label.setStyleSheet(f"font-size: {36}px; color: {self.colorFuenteReloj1}; font-family: {self.tipografia}")
+                        self.menu_aprobar_pedidos_label.setText("Pedidos aprobados exitosamente")
+                    else:
+                        self.menu_aprobar_pedidos_label.setStyleSheet(f"font-size: {36}px; color: {self.colorError}; font-family: {self.tipografia}")
+                        self.menu_aprobar_pedidos_label.setText("Coloque una tarjeta autorizada")
+                else:
+                    pass
+            case "menu_registros":
+                # Conectar a la base de datos
+                conn = sqlite3.connect(self.db)
+                cursor = conn.cursor()
+
+                # Buscar en la tabla usuarios donde id_tarjeta coincida con el valor de data
+                cursor.execute("SELECT nombre, cedula, rol FROM usuarios WHERE id_tarjeta = ?", (data,))
+                result = cursor.fetchone()
+
+                if result:
+                    nombre, cedula, rol = result
+                    servicio = self.valor_servicio_actual
+                    now = datetime.now()
+                    fecha = now.strftime("%Y-%m-%d")
+                    hora = now.strftime("%H:%M")
+                    sede = self.sede
+                    id_registro = f"{fecha}-{hora}-{servicio}-{sede}-{cedula}"
+                    self.timer_servicio2.stop()
                     
-                except sqlite3.Error as e:
-                    conn.rollback()  # Revertir cambios en caso de error
-                finally:
-                    # Cerrar la conexión a la base de datos
+                    # Verificar que la cédula no exista en la base de datos
+                    conn = sqlite3.connect(self.db)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM registros WHERE cedula = ? AND tipo = ? AND fecha = ?", (cedula, servicio, fecha))
+                    result = cursor.fetchone()
                     conn.close()
-                self.menu_aprobar_pedidos_label.setStyleSheet(f"font-size: {36}px; color: {self.colorFuenteReloj1}; font-family: {self.tipografia}")
-                self.menu_aprobar_pedidos_label.setText("Pedidos aprobados exitosamente")
-                self.join_rfid_thread()
-            else:
-                self.menu_aprobar_pedidos_label.setStyleSheet(f"font-size: {36}px; color: {self.colorError}; font-family: {self.tipografia}")
-                self.menu_aprobar_pedidos_label.setText("Coloque una tarjeta autorizada")
-        else:
-            pass
+                    
+                    if result[0]>0:
+                        self.menu_registro_tarjeta_invalida = QWidget(self)
+                        self.init_menu_registro_tarjeta_invalida()
+                        self.setCentralWidget(self.menu_registro_tarjeta_invalida)
+                    else:
+                        self.menu_registro_tarjeta = QWidget(self)
+                        self.init_menu_confirmar_registro_tarjeta(cedula, nombre, rol, servicio)
+                        self.setCentralWidget(self.menu_registro_tarjeta)
+                else:
+                    self.timer_servicio2.stop()
+                    self.menu_registro_tarjeta_invalida = QWidget(self)
+                    self.init_menu_registro_tarjeta_invalida()
+                    self.setCentralWidget(self.menu_registro_tarjeta_invalida)
 
-    
+                # Cerrar la conexión a la base de datos
+                conn.close()
+                    
+            case _:
+                print(f"[RFID] Tarjeta leida: {data}, en un menu no admitido: {self.menu_actual}")
+
 
 
 ### DEFINICION DE MENUS
     
     def init_menu_principal(self):
+        self.menu_actual = "menu_principal"
         self.set_background_image(self.menu_principal, "Desarrollo/Assets/menuPrincipal/fondo.png")
         
         self.setWindowTitle("Menu Principal")
@@ -476,10 +550,10 @@ class MainWindow(QMainWindow):
         self.clock_widget.setStyleSheet(f"font-size: {self.tamañoFuenteReloj}px; color: {self.colorFuenteReloj1}; font-family: {self.tipografia}")
         self.clock_widget.show()
         
-        
         boton_usuarios = self.create_hover_image_button(self.menu_principal, "Desarrollo/Assets/menuPrincipalOp/boton_usuarios_1.png", "Desarrollo/Assets/menuPrincipalOp/boton_usuarios_2.png", 432, 345, 505, 462, self.on_menu_principal_usuarios_clicked, True)
         boton_pedidos = self.create_hover_image_button(self.menu_principal, "Desarrollo/Assets/menuPrincipalOp/boton_pedidos_1.png", "Desarrollo/Assets/menuPrincipalOp/boton_pedidos_2.png", 432, 345, 999, 462, self.on_menu_principal_pedidos_clicked, True)
         boton_registros = self.create_hover_image_button(self.menu_principal, "Desarrollo/Assets/menuPrincipalOp/boton_registro_1.png", "Desarrollo/Assets/menuPrincipalOp/boton_registro_2.png", 926, 117, 505, 854, self.on_menu_principal_registros_clicked, True)
+        boton_empleados = self.create_image_button(self.menu_principal, "Desarrollo/Assets/menuPrincipalOp/boton_asistencia.png", 318, 168, 1552, 765, self.on_menu_principal_empleados_clicked, True)
         
         # Crear el label
         self.menu_principal_label_servicio = self.create_label(self.menu_principal, "", 628, 310, 800, 105, 70, self.colorFuenteServicio, self.tipografia, False)
@@ -493,8 +567,93 @@ class MainWindow(QMainWindow):
         self.timer_servicio = QTimer(self)
         self.timer_servicio.timeout.connect(self.update_service_label)
         self.timer_servicio.start(60000)  # Actualizar cada 60 segundos
+
+    def init_menu_empleados(self):
+        self.menu_actual = "menu_empleados"
+        self.set_background_image(self.menu_empleados, "Desarrollo/Assets/menuEmpleados/fondo.png")
+        
+        self.setWindowTitle("Menu Empleados")
+        self.clock_widget.setParent(self.menu_empleados)  # Asegurarse de que el reloj esté en el menú principal
+        self.clock_widget.setStyleSheet(f"font-size: {self.tamañoFuenteReloj}px; color: {self.colorFuenteReloj3}; font-family: {self.tipografia}")
+        self.clock_widget.show()
+        
+        boton_agregar = self.create_hover_image_button(self.menu_empleados, "Desarrollo/Assets/menuEmpleados/boton_entrada_1.png", "Desarrollo/Assets/menuEmpleados/boton_entrada_2.png", 500, 355, 428, 471, self.on_menu_empleados_entrada_clicked, True)
+        boton_editar = self.create_hover_image_button(self.menu_empleados, "Desarrollo/Assets/menuEmpleados/boton_salida_1.png", "Desarrollo/Assets/menuEmpleados/boton_salida_2.png", 500, 355, 991, 471, self.on_menu_empleados_salida_clicked, True)
+        
+        boton_atras = self.create_image_button(self.menu_empleados, "Desarrollo/Assets/Commons/boton_atras_o.png", 143, 63, 1670, 908, self.on_menu_empleados_atras_clicked, True)
+        
+    def init_menu_empleados_registro(self, tipo):
+        self.menu_actual = "menu_empleados_registro"
+        self.set_background_image(self.menu_empleados_registro, "Desarrollo/Assets/menuEmpleadosRegistro/fondo.png")
+        
+        self.setWindowTitle("Menu Empleados Registro")
+        self.clock_widget.setParent(self.menu_empleados_registro)  # Asegurarse de que el reloj esté en el menú
+        self.clock_widget.setStyleSheet(f"font-size: {self.tamañoFuenteReloj}px; color: {self.colorFuenteReloj3}; font-family: {self.tipografia}")
+        self.clock_widget.show()
+        
+        # Crear el label
+        self.menu_empleados_registro_label = self.create_label(self.menu_empleados_registro, tipo, 714, 242, 491, 180, 120, self.colorFuente3, self.tipografia, True)
+        self.menu_empleados_registro_label.show()
+        self.menu_empleados_registro_label.setAlignment(Qt.AlignCenter)
+        
+        boton_atras = self.create_image_button(self.menu_empleados_registro, "Desarrollo/Assets/Commons/boton_atras_o.png", 143, 63, 1670, 908, self.on_menu_empleados_registro_atras_clicked, True)
+        
+        self.menu_empleados_registro_tipo = tipo
+        
+    def init_menu_empleados_registro_exitoso(self, documento, nombre, tipo):
+        self.menu_actual = "menu_empleados_registro_exitoso"
+        self.set_background_image(self.menu_empleados_registro_exitoso, "Desarrollo/Assets/menuEmpleadosRegistroExitoso/fondo.png")
+        
+        self.setWindowTitle("Menu Empleados Registro Exitoso")
+        self.clock_widget.setParent(self.menu_empleados_registro_exitoso)  # Asegurarse de que el reloj esté en el menú
+        self.clock_widget.setStyleSheet(f"font-size: {self.tamañoFuenteReloj}px; color: {self.colorFuenteReloj2}; font-family: {self.tipografia}")
+        self.clock_widget.show()
+        
+        self.menu_empleados_registro_exitoso_label_cedula=self.create_label(self.menu_empleados_registro_exitoso, documento, 690, 590, 536, 40, self.tamañoFuentePrincipal, self.colorFuente ,self.tipografia, False)
+        self.menu_empleados_registro_exitoso_label_nombre=self.create_label(self.menu_empleados_registro_exitoso, nombre, 690, 640, 536, 40, self.tamañoFuentePrincipal, self.colorFuente ,self.tipografia, False)
+        if tipo == "Entrada":
+            self.menu_empleados_registro_exitoso_label_mensaje_1=self.create_label(self.menu_empleados_registro_exitoso, "Ingreso registrado", 690, 720, 536, 40, self.tamañoFuentePrincipal, self.colorFuente ,self.tipografia, True)
+        else:
+            self.menu_empleados_registro_exitoso_label_mensaje_1=self.create_label(self.menu_empleados_registro_exitoso, "Salida registrada", 690, 720, 536, 40, self.tamañoFuentePrincipal, self.colorFuente ,self.tipografia, True)
+        self.menu_empleados_registro_exitoso_label_mensaje_2=self.create_label(self.menu_empleados_registro_exitoso, "exitosamente", 690, 750, 536, 40, self.tamañoFuentePrincipal, self.colorFuente ,self.tipografia, True)
+        
+        self.menu_empleados_registro_exitoso_label_cedula.show()
+        self.menu_empleados_registro_exitoso_label_cedula.setAlignment(Qt.AlignCenter)
+        
+        self.menu_empleados_registro_exitoso_label_nombre.show()
+        self.menu_empleados_registro_exitoso_label_nombre.setAlignment(Qt.AlignCenter)
+        
+        self.menu_empleados_registro_exitoso_label_mensaje_1.show()
+        self.menu_empleados_registro_exitoso_label_mensaje_1.setAlignment(Qt.AlignCenter)
+        
+        self.menu_empleados_registro_exitoso_label_mensaje_2.show()
+        self.menu_empleados_registro_exitoso_label_mensaje_2.setAlignment(Qt.AlignCenter)
+        
+        boton_cerrar = self.create_image_button(self.menu_empleados_registro_exitoso, "Desarrollo/Assets/Commons/x.png", 39, 39, 1161, 275, self.menu_empleados_registro_exitoso_cerrar_clicked, True)
+        
+    def init_menu_empleados_registro_fallido(self):
+        self.menu_actual = "menu_empleados_registro_fallido"
+        self.set_background_image(self.menu_empleados_registro_fallido, "Desarrollo/Assets/menuEmpleadosRegistroFallido/fondo.png")
+        
+        self.setWindowTitle("Menu Empleados Registro Fallido")
+        self.clock_widget.setParent(self.menu_empleados_registro_fallido)  # Asegurarse de que el reloj esté en el menú
+        self.clock_widget.setStyleSheet(f"font-size: {self.tamañoFuenteReloj}px; color: {self.colorFuenteReloj2}; font-family: {self.tipografia}")
+        self.clock_widget.show()
+        
+
+        self.menu_empleados_registro_fallido_label_mensaje_1=self.create_label(self.menu_empleados_registro_fallido, "Empleado no", 835, 609, 250, 40, self.tamañoFuentePrincipal, self.colorFuente ,self.tipografia, True)
+        self.menu_empleados_registro_fallido_label_mensaje_2=self.create_label(self.menu_empleados_registro_fallido, "reconocido", 835, 666, 250, 40, self.tamañoFuentePrincipal, self.colorFuente ,self.tipografia, True)
+        
+        self.menu_empleados_registro_fallido_label_mensaje_1.show()
+        self.menu_empleados_registro_fallido_label_mensaje_1.setAlignment(Qt.AlignCenter)
+        
+        self.menu_empleados_registro_fallido_label_mensaje_2.show()
+        self.menu_empleados_registro_fallido_label_mensaje_2.setAlignment(Qt.AlignCenter)
+        
+        boton_cerrar = self.create_image_button(self.menu_empleados_registro_fallido, "Desarrollo/Assets/Commons/x.png", 39, 39, 1161, 275, self.menu_empleados_registro_fallido_cerrar_clicked, True)
         
     def init_menu_usuarios(self):
+        self.menu_actual = "menu_usuarios"
         self.set_background_image(self.menu_usuarios, "Desarrollo/Assets/menuUsuarios/fondo.png")
         
         self.setWindowTitle("Menu Usuarios")
@@ -508,6 +667,7 @@ class MainWindow(QMainWindow):
         boton_atras = self.create_image_button(self.menu_usuarios, "Desarrollo/Assets/Commons/boton_atras.png", 143, 63, 1670, 908, self.on_menu_usuarios_atras_clicked, True)
         
     def init_menu_formulario_usuarioN(self):
+        self.menu_actual = "menu_formulario_usuarioN"
         self.set_background_image(self.menu_formulario_usuarioN, "Desarrollo/Assets/menuFormularioUsuarioNOp/fondo.png")
         
         self.setWindowTitle("Formulario Usuario Nuevo")
@@ -538,12 +698,8 @@ class MainWindow(QMainWindow):
         validator = QRegExpValidator(regex)
         self.menu_formulario_usuarioN_entry_nombre.setValidator(validator)
         
-        # Crear instancia del hilo del lector RFID
-        self.rfid_thread = RFIDThread()
-        self.rfid_thread.data_read.connect(self.on_menu_formulario_usuarioN_rfid_data_received)
-        self.rfid_thread.start()
-        
     def init_menu_confirmar_usuarioN(self, cedula, nombre, area, tarjeta):
+        self.menu_actual = "menu_confirmar_usuarioN"
         self.set_background_images(self.menu_confirmar_usuarioN, "Desarrollo/Assets/menuConfirmarUsuarioN/fondo_1.png", "Desarrollo/Assets/menuConfirmarUsuarioN/fondo_2.png")
     
         self.setWindowTitle("Confirmar Usuario Nuevo")
@@ -567,6 +723,7 @@ class MainWindow(QMainWindow):
         self.menu_confirmar_usuario_tarjeta=tarjeta
         
     def init_menu_lista_usuarios(self):
+        self.menu_actual = "menu_lista_usuarios"
         self.set_background_image(self.menu_lista_usuarios, "Desarrollo/Assets/menuListaUsuarios/fondo.png")
         
         self.setWindowTitle("Menu lista de Usuarios")
@@ -617,6 +774,7 @@ class MainWindow(QMainWindow):
         self.cargar_datos_usuarios()
         
     def init_menu_editar_usuarios(self, cedula):
+        self.menu_actual = "menu_editar_usuario"
         self.set_background_image(self.menu_editar_usuario, "Desarrollo/Assets/menuFormularioUsuarioNOp/fondo.png")
         
         self.setWindowTitle("Menu Editar Usuarios")
@@ -668,12 +826,8 @@ class MainWindow(QMainWindow):
         validator = QRegExpValidator(regex)
         self.menu_editar_usuario_entry_nombre.setValidator(validator)
         
-        # Crear instancia del hilo del lector RFID
-        self.rfid_thread = RFIDThread()
-        self.rfid_thread.data_read.connect(self.on_menu_formulario_usuarioE_rfid_data_received)
-        self.rfid_thread.start()
-        
     def init_menu_confirmar_usuarioE(self, cedula_selected, cedula, nombre, area, tarjeta):
+        self.menu_actual = "menu_confirmar_usuarioE"
         self.set_background_images(self.menu_confirmar_usuarioE, "Desarrollo/Assets/menuConfirmarUsuarioN/fondo_1.png", "Desarrollo/Assets/menuConfirmarUsuarioN/fondo_2.png")
         
         self.setWindowTitle("Confirmar Usuario Editado")
@@ -698,6 +852,7 @@ class MainWindow(QMainWindow):
         self.menu_confirmar_usuarioE_boton_aceptar = self.create_image_button(self.menu_confirmar_usuarioE, "Desarrollo/Assets/Commons/boton_aceptar.png", 201, 60, 928, 722, self.on_menu_confirmar_usuarioE_aceptar_clicked, True)
         
     def init_menu_pedidos(self):
+        self.menu_actual = "menu_pedidos"
         self.set_background_image(self.menu_pedidos, "Desarrollo/Assets/menuPedidos/fondo.png")
         
         self.setWindowTitle("Menu Pedidos")
@@ -710,6 +865,7 @@ class MainWindow(QMainWindow):
         boton_atras = self.create_image_button(self.menu_pedidos, "Desarrollo/Assets/Commons/boton_atras.png", 143, 63, 1670, 908, self.on_menu_pedidos_atras_clicked, True)
         
     def init_menu_crear_pedido(self, numero_desayuno=0, numero_almuerzo=0, numero_cena=0, numero_jugo=0, numero_porron=0, refrigerio_descripcion="", refrigerio_cantidad=0, refrigerio_precio=0): 
+        self.menu_actual = "menu_crear_pedido"
         self.set_background_images(self.menu_crear_pedido, "Desarrollo/Assets/menuCrearPedido/fondo_1.png", "Desarrollo/Assets/menuCrearPedido/fondo_2.png")
         
         self.setWindowTitle("Menu Crear Pedido")
@@ -739,11 +895,11 @@ class MainWindow(QMainWindow):
         self.menu_crear_pedido_entry_jugo.setAlignment(Qt.AlignCenter)
         self.menu_crear_pedido_entry_porron.setAlignment(Qt.AlignCenter)
         
-        self.menu_crear_pedido_entry_desayuno.setStyleSheet("font-size: 36px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
-        self.menu_crear_pedido_entry_almuerzo.setStyleSheet("font-size: 36px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
-        self.menu_crear_pedido_entry_cena.setStyleSheet("font-size: 36px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
-        self.menu_crear_pedido_entry_jugo.setStyleSheet("font-size: 36px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
-        self.menu_crear_pedido_entry_porron.setStyleSheet("font-size: 36px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
+        self.menu_crear_pedido_entry_desayuno.setStyleSheet("font-size: 32px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
+        self.menu_crear_pedido_entry_almuerzo.setStyleSheet("font-size: 32px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
+        self.menu_crear_pedido_entry_cena.setStyleSheet("font-size: 32px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
+        self.menu_crear_pedido_entry_jugo.setStyleSheet("font-size: 32px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
+        self.menu_crear_pedido_entry_porron.setStyleSheet("font-size: 32px; font-family: Poppins; color: {}; border-radius: 10px;".format(self.colorFuente2))
         
         self.menu_crear_pedido_entry_desayuno.setText(str(self.menu_crear_pedido_numero_desayuno))
         self.menu_crear_pedido_entry_almuerzo.setText(str(self.menu_crear_pedido_numero_almuerzo))
@@ -751,11 +907,11 @@ class MainWindow(QMainWindow):
         self.menu_crear_pedido_entry_jugo.setText(str(self.menu_crear_pedido_numero_jugo))
         self.menu_crear_pedido_entry_porron.setText(str(self.menu_crear_pedido_numero_porron))
         
-        self.menu_crear_pedido_entry_desayuno.setMaxLength(2)
-        self.menu_crear_pedido_entry_almuerzo.setMaxLength(2)
-        self.menu_crear_pedido_entry_cena.setMaxLength(2)
-        self.menu_crear_pedido_entry_jugo.setMaxLength(2)
-        self.menu_crear_pedido_entry_porron.setMaxLength(2)
+        self.menu_crear_pedido_entry_desayuno.setMaxLength(3)
+        self.menu_crear_pedido_entry_almuerzo.setMaxLength(3)
+        self.menu_crear_pedido_entry_cena.setMaxLength(3)
+        self.menu_crear_pedido_entry_jugo.setMaxLength(3)
+        self.menu_crear_pedido_entry_porron.setMaxLength(3)
         
         regex = QRegExp(f"[{self.allowed_characters_numeric}]*")
         validator = QRegExpValidator(regex)
@@ -786,6 +942,7 @@ class MainWindow(QMainWindow):
         self.menu_crear_pedido_entry_refrigerio_descripcion.setValidator(validator)
         
     def init_menu_confirmar_pedido(self, numero_desayuno, numero_almuerzo, numero_cena, numero_jugo, numero_porron, descripcion_refrigerio, cantidad_refrigerio, precio_refrigerio):
+        self.menu_actual = "menu_confirmar_pedido"
         self.set_background_images(self.menu_confirmar_pedido, "Desarrollo/Assets/menuConfirmarPedido/fondo_1.png", "Desarrollo/Assets/menuConfirmarPedido/fondo_2.png")
         
         self.label_errores=QLabel("", self)
@@ -824,6 +981,7 @@ class MainWindow(QMainWindow):
     ###
     
     def init_menu_lista_pedidos(self):
+        self.menu_actual = "menu_lista_pedidos"
         self.set_background_image(self.menu_lista_pedidos, "Desarrollo/Assets/menuListaPedidos/fondo.png")
         
         self.setWindowTitle("Menu lista de Pedidos")
@@ -881,6 +1039,7 @@ class MainWindow(QMainWindow):
         self.cargar_datos_pedidos()
         
     def init_menu_aprobar_pedidos(self, lista_pedidos):
+        self.menu_actual = "menu_aprobar_pedidos"
         self.set_background_image(self.menu_aprobar_pedidos, "Desarrollo/Assets/menuAprobarPedidos/fondo.png")
         
         self.setWindowTitle("Aprobar Pedidos")
@@ -959,12 +1118,8 @@ class MainWindow(QMainWindow):
         
         menu_aprobar_pedidos_tabla.show()
         
-        # Crear instancia del hilo del lector RFID
-        self.rfid_thread = RFIDThread()
-        self.rfid_thread.data_read.connect(self.on_menu_aprobar_pedidos_rfid_data_received)
-        self.rfid_thread.start()
-        
     def init_menu_registros(self):
+        self.menu_actual = "menu_registros"
         self.set_background_image(self.menu_registros, "Desarrollo/Assets/menuRegistros/fondo.png")
         
         self.setWindowTitle("Menu Registros")
@@ -989,12 +1144,8 @@ class MainWindow(QMainWindow):
         self.timer_servicio2.timeout.connect(self.update_service_label2)
         self.timer_servicio2.start(60000)  # Actualizar cada 60 segundos
         
-        # Crear instancia del hilo del lector RFID
-        self.rfid_thread = RFIDThread()
-        self.rfid_thread.data_read.connect(self.on_menu_registros_rfid_data_received)
-        self.rfid_thread.start()
-        
     def init_menu_registro_manual(self):
+        self.menu_actual = "menu_registro_manual"
         self.set_background_image(self.menu_registro_manual, "Desarrollo/Assets/menuRegistroManual/fondo.png")
         
         self.setWindowTitle("Menu Registro Manual")
@@ -1008,6 +1159,7 @@ class MainWindow(QMainWindow):
         boton_cerrar = self.create_image_button(self.menu_registro_manual, "Desarrollo/Assets/Commons/x.png", 39, 39, 1401, 316, self.on_menu_registro_manual_cerrar_clicked, True)
         
     def init_menu_registro_existente(self, cedula=""):
+        self.menu_actual = "menu_registro_manualE"
         self.set_background_image(self.menu_registro_manualE, "Desarrollo/Assets/menuRegistroExistente/fondo.png")
         
         self.setWindowTitle("Registro Usuario Existente")
@@ -1031,6 +1183,7 @@ class MainWindow(QMainWindow):
         boton_cerrar = self.create_image_button(self.menu_registro_manualE, "Desarrollo/Assets/Commons/x.png", 39, 39, 1406, 346, self.on_menu_registro_existente_cerrar_clicked, True)
         
     def init_menu_registro_nuevo(self, cedula="", nombre="", rol="Visitante"):
+        self.menu_actual = "menu_registro_manualN"
         self.set_background_image(self.menu_registro_manualN, "Desarrollo/Assets/menuFormularioUsuarioN/fondo.png")
         
         self.setWindowTitle("Registro Visitante")
@@ -1060,6 +1213,7 @@ class MainWindow(QMainWindow):
         boton_cerrar = self.create_image_button(self.menu_registro_manualN, "Desarrollo/Assets/Commons/x.png", 39, 39, 1406, 258, self.on_menu_registro_nuevo_cerrar_clicked, True)
         
     def init_menu_confirmar_registro_manual_nuevo(self, cedula, nombre, area, servicio):
+        self.menu_actual = "menu_confirmar_registro_manualN"
         self.set_background_images(self.menu_confirmar_registro_manualN, "Desarrollo/Assets/menuConfirmarRegistroManual/fondo1.png", "Desarrollo/Assets/menuConfirmarRegistroManual/fondo2.png")
     
         self.setWindowTitle("Confirmar Registro Manual Usuario Nuevo")
@@ -1084,6 +1238,7 @@ class MainWindow(QMainWindow):
         self.menu_confirmar_registro_manualN_servicio=servicio
     
     def init_menu_confirmar_registro_manual_existente(self, cedula, nombre, rol, servicio):
+        self.menu_actual = "menu_confirmar_registro_manualE"
         self.set_background_images(self.menu_confirmar_registro_manualE, "Desarrollo/Assets/menuConfirmarRegistroManual/fondo1.png", "Desarrollo/Assets/menuConfirmarRegistroManual/fondo2.png")
     
         self.setWindowTitle("Confirmar Registro Manual Usuario Existente")
@@ -1107,6 +1262,7 @@ class MainWindow(QMainWindow):
         self.menu_confirmar_registro_manualE_servicio=servicio
     
     def init_menu_confirmar_registro_tarjeta(self, cedula, nombre, rol, servicio):
+        self.menu_actual = "menu_registro_tarjeta"
         self.set_background_image(self.menu_registro_tarjeta, "Desarrollo/Assets/menuConfirmarRegistroTarjeta/fondo.png")
     
         self.setWindowTitle("Confirmar Registro Automatico")
@@ -1126,6 +1282,7 @@ class MainWindow(QMainWindow):
         self.menu_confirmar_registro_manualE_servicio=servicio
         
     def init_menu_registro_tarjeta_invalida(self):
+        self.menu_actual = "menu_registro_tarjeta_invalida"
         self.set_background_image(self.menu_registro_tarjeta_invalida, "Desarrollo/Assets/menuTarjetaInvalida/fondo.png")
         
         self.setWindowTitle("Registro Tarjeta Invalida")
@@ -1158,6 +1315,42 @@ class MainWindow(QMainWindow):
         self.init_menu_registros()
         self.setCentralWidget(self.menu_registros)
         self.timer_servicio.stop()
+
+    def on_menu_principal_empleados_clicked(self):
+        self.menu_empleados = QWidget(self)
+        self.init_menu_empleados()
+        self.setCentralWidget(self.menu_empleados)
+        self.timer_servicio.stop()
+
+    def on_menu_empleados_entrada_clicked(self):
+        self.menu_empleados_registro = QWidget(self)
+        self.init_menu_empleados_registro("Entrada")
+        self.setCentralWidget(self.menu_empleados_registro)
+        
+    def on_menu_empleados_salida_clicked(self):
+        self.menu_empleados_registro = QWidget(self)
+        self.init_menu_empleados_registro("Salida")
+        self.setCentralWidget(self.menu_empleados_registro)
+        
+    def on_menu_empleados_atras_clicked(self):
+        self.menu_principal = QWidget(self)
+        self.init_menu_principal()
+        self.setCentralWidget(self.menu_principal)
+        
+    def on_menu_empleados_registro_atras_clicked(self):
+        self.menu_principal = QWidget(self)
+        self.init_menu_principal()
+        self.setCentralWidget(self.menu_principal)
+        
+    def menu_empleados_registro_exitoso_cerrar_clicked(self):
+        self.menu_principal = QWidget(self)
+        self.init_menu_principal()
+        self.setCentralWidget(self.menu_principal)
+        
+    def menu_empleados_registro_fallido_cerrar_clicked(self):
+        self.menu_principal = QWidget(self)
+        self.init_menu_principal()
+        self.setCentralWidget(self.menu_principal)
     
     def on_menu_usuarios_agregar_clicked(self): #check
         self.menu_formulario_usuarioN = QWidget(self)
@@ -1240,36 +1433,19 @@ class MainWindow(QMainWindow):
             self.label_errores.setAlignment(Qt.AlignCenter)
             self.menu_formulario_usuarioN_entry_tarjeta.setStyleSheet("font-size: 36px; font-family: Poppins; color: #727272; border-radius: 10px; border: 2px solid #E10909;")
         else:
-            # Proceder con la funcionalidad original si todas las verificaciones pasan
-            self.join_rfid_thread()
             self.menu_confirmar_usuarioN = QWidget(self)
             self.init_menu_confirmar_usuarioN(cedula, nombre, area, tarjeta)
             self.setCentralWidget(self.menu_confirmar_usuarioN)
         
     def on_menu_formulario_usuarioN_cancelar_clicked(self): #check
-        self.join_rfid_thread()
         self.menu_usuarios = QWidget(self)
         self.init_menu_usuarios()
         self.setCentralWidget(self.menu_usuarios)
         
     def on_menu_formulario_usuarioN_cerrar_clicked(self): #check
-        self.join_rfid_thread()
         self.menu_principal = QWidget(self)
         self.init_menu_principal()
         self.setCentralWidget(self.menu_principal)
-        
-    def join_rfid_thread(self): #check
-        # Detener el hilo del lector RFID antes de cerrar el formulario
-#        if self.rfid_thread:
-#            self.rfid_thread.terminate()
-#            self.rfid_thread.wait()
-#            self.rfid_thread = None
-        if self.rfid_thread:
-            if self.rfid_thread.isRunning():
-                self.rfid_thread.quit()  # Solicita al hilo que finalice limpiamente
-                if not self.rfid_thread.wait(1000):  # Espera hasta 3 segundos
-                    print("Advertencia: El hilo RFID no se detuvo a tiempo.")
-        self.rfid_thread = None  # Eliminar la referencia al hilo
         
     def on_menu_confirmar_usuarioN_aceptar_clicked(self): #check
         self.menu_confirmar_usuarioN_boton_editar.setParent(None)
@@ -1379,19 +1555,16 @@ class MainWindow(QMainWindow):
             self.menu_formulario_usuarioN_entry_tarjeta.setStyleSheet("border: 2px solid #E10909;")
         else:
             # Proceder con la funcionalidad original si todas las verificaciones pasan
-            self.join_rfid_thread()
             self.menu_confirmar_usuarioE = QWidget(self)
             self.init_menu_confirmar_usuarioE(cedula_selected, cedula, nombre, area, tarjeta)
             self.setCentralWidget(self.menu_confirmar_usuarioE)
         
     def on_menu_editar_usuario_cancelar_clicked(self): #check
-        self.join_rfid_thread()
         self.menu_lista_usuarios = QWidget(self)
         self.init_menu_lista_usuarios()
         self.setCentralWidget(self.menu_lista_usuarios)
         
     def on_menu_editar_usuario_cerrar_clicked(self): #check
-        self.join_rfid_thread()
         self.menu_usuarios = QWidget(self)
         self.init_menu_usuarios()
         self.setCentralWidget(self.menu_usuarios)
@@ -1681,17 +1854,14 @@ class MainWindow(QMainWindow):
         self.menu_pedidos = QWidget(self)
         self.init_menu_pedidos()
         self.setCentralWidget(self.menu_pedidos)
-        self.join_rfid_thread()
     
     def on_menu_registros_atras_clicked(self): #check
-        self.join_rfid_thread()
         self.menu_principal = QWidget(self)
         self.init_menu_principal()
         self.setCentralWidget(self.menu_principal)
         self.timer_servicio2.stop()
         
     def on_menu_registros_manual_clicked(self): #check
-        self.join_rfid_thread()
         self.menu_registro_manual = QWidget(self)
         self.init_menu_registro_manual()
         self.setCentralWidget(self.menu_registro_manual)

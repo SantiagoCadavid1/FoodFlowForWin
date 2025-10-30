@@ -6,6 +6,7 @@ import requests
 import shutil
 from datetime import datetime
 from sync_local import sync_usuarios, sync_menu, sync_registros, sync_pedidos
+from sync_local_empleados import sincronizar_empleados_local
 
 CONFIG_FILE = "C:/FoodFlow/config.json"
 
@@ -62,7 +63,13 @@ def copy_and_rename_file(source_path, destination_directory, new_name):
 # Función para sincronizar las bases de datos
 def sync_databases():
     local_db = 'C:/FoodFlow/Desarrollo/Database/marmato_db.db'
+    emp_local_db = 'C:/FoodFlow/Desarrollo/Database/empleados_db.db'
     secondary_db = 'db_secundaria.db'
+    emp_secondary_db = 'empleados_db.db'
+
+    # 1️⃣ Sincronizar empleados
+    print("👥 Sincronizando empleados...")
+    sincronizar_empleados_local(emp_local_db, emp_secondary_db)
 
     # Aquí se incluye el script de sincronización previamente definido
     sync_usuarios(local_db, secondary_db)
@@ -89,6 +96,11 @@ while True:
                         f'Aplicaciones/FoodFlow/Sedes/{sede}/{sede}_db.db',
                         'C:/FoodFlow/Sync'
                     )
+
+                    download_from_dropbox(
+                        f'Aplicaciones/FoodFlow/Sedes/{sede}/empleados_db.db',
+                        'C:/FoodFlow/Sync'
+                    )
                     
                     # Renombrar la base de datos descargada a db_secundaria.db
                     rename_file(
@@ -108,6 +120,9 @@ while True:
 
                     # Subir la base de datos local actualizada a Dropbox
                     upload_to_dropbox(f'{sede}_db.db', f'Aplicaciones/FoodFlow/Sedes/{sede}/')
+
+                    # 🔼 Subir también base de empleados local actualizada
+                    upload_to_dropbox('empleados_db.db', f'Aplicaciones/FoodFlow/Sedes/{sede}/')
 
                     # Actualizar las banderas
                     flags['pull_ready'] = False
@@ -131,7 +146,10 @@ while True:
                     break
             else:
                 copy_and_rename_file('C:/FoodFlow/Desarrollo/Database/marmato_db.db', './', f'{sede}_db.db')
+                copy_and_rename_file('C:/FoodFlow/Desarrollo/Database/empleados_db.db', './', 'empleados_db.db')
                 upload_to_dropbox(f'{sede}_db.db', f'Aplicaciones/FoodFlow/Sedes/{sede}/')
+                upload_to_dropbox('empleados_db.db', f'Aplicaciones/FoodFlow/Sedes/{sede}/')
+
                 # Leer el archivo de banderas
                 with open(local_flags_path, 'r') as f:
                     flags = json.load(f)

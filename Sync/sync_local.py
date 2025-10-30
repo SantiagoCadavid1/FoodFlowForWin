@@ -31,8 +31,8 @@ def sync_usuarios(local_db, secondary_db):
                     WHERE cedula = ?""", (user[0], user[2], user[3], user[4], user[5], user[6], user[1]))
         else:
             cursor_local.execute("""
-                INSERT INTO usuarios (nombre, cedula, id_tarjeta, rol, flag_retirado, fecha_ultima_modificacion)
-                VALUES (?, ?, ?, ?, ?, ?)""", user)
+                INSERT INTO usuarios (nombre, cedula, id_tarjeta, rol, flag_retirado, fecha_ultima_modificacion, area)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""", user)
 
     conn_local.commit()
     conn_local.close()
